@@ -12,6 +12,7 @@ Helm simplifies Kubernetes deployments by streamlining configurations and enabli
 
 Before You Begin, ensure the following:
 
+- **Kubernetes Cluster**: Ensure you have a properly installed and configured Kubernetes cluster.
 - **System Requirements**: Verify that your system meets the [minimum requirements](./system-requirements.md).
 - **Tools Installed**: Install the required tools:
     - Kubernetes CLI (kubectl)
@@ -21,7 +22,7 @@ Before You Begin, ensure the following:
 
 To deploy the Smart Intersection Sample Application, copy and paste the entire block of commands below into your terminal and run them:
 
-  ```bash
+```bash
 # change the permissions of the secrets folder
 sudo chown -R $USER:$USER chart/files/secrets
 sudo chown -R $USER:$USER src/secrets
@@ -45,14 +46,6 @@ helm upgrade --install smart-intersection ./chart \
   --set grafana.service.type=NodePort \
   -n smart-intersection
 
-# We need to run same command again (Known issue, fix will be available soon)
-
-# Install the chart with secrets injected via --set
-helm upgrade --install smart-intersection ./chart \
-  --create-namespace \
-  --set grafana.service.type=NodePort \
-  -n smart-intersection
-
 # Some containers in the deployment requires network access.
 # If you are in a proxy environment, pass the proxy environment variables as follows:
 # helm upgrade \
@@ -63,74 +56,99 @@ helm upgrade --install smart-intersection ./chart \
 #     --set noProxy="localhost\,127.0.0.1" \
 #     --set grafana.service.type=NodePort \
 #     -n smart-intersection
+```
 
-# Provision data to DL Streamer Pipeline Server
-# ======================
+Next, transfer the videos to DL Streamer Pipeline Server with the following commands:
 
-sleep 5 # Wait for the pods to be up
-
-# Get the pod
+```bash
+# Get pod name
 DLS_PS_POD=$(kubectl get pods -n smart-intersection -l app=smart-intersection-dlstreamer-pipeline-server -o jsonpath="{.items[0].metadata.name}")
 
-# Copy data to the pod init containers
-# > **⚠️ Note:** Sometimes init-dlstreamer-pipeline-server-models container gets created first and then init-dlstreamer-pipeline-server-videos. In that case, the order of copying data to the pod should be reversed.
-
+# Copy videos to the init container
 kubectl cp ./src/dlstreamer-pipeline-server/videos smart-intersection/${DLS_PS_POD}:/data/ -c init-dlstreamer-pipeline-server-videos
+
+# Create .done flag
 kubectl -n smart-intersection exec $DLS_PS_POD -c init-dlstreamer-pipeline-server-videos -- touch /data/videos/.done
-sleep 5 # Wait for the init container to finish
+```
+
+Next, transfer the model to DL Streamer Pipeline Server with the following commands:
+
+```bash
+# Get pod name
+DLS_PS_POD=$(kubectl get pods -n smart-intersection -l app=smart-intersection-dlstreamer-pipeline-server -o jsonpath="{.items[0].metadata.name}")
+
+# Copy model to the init container
 kubectl cp ./src/dlstreamer-pipeline-server/models/intersection smart-intersection/${DLS_PS_POD}:/data/models -c init-dlstreamer-pipeline-server-models
+
+# Create .done flag
 kubectl -n smart-intersection exec $DLS_PS_POD -c init-dlstreamer-pipeline-server-models -- touch /data/models/.done
+```
 
-sleep 5 # Wait for the init containers to finish
+Finally, transfer the data base archive to Scene DB with the following commands:
 
-# Provision data to pgserver
-# ==========================
-
-# Get the pod
+```bash
+# Get pod name
 PGSERVER_POD=$(kubectl get pods -n smart-intersection -l app=smart-intersection-pgserver -o jsonpath="{.items[0].metadata.name}")
 
-# Copy data to the pod init container
+# Copy archive to the init container
 kubectl cp ./src/webserver/smart-intersection-ri.tar.bz2 smart-intersection/${PGSERVER_POD}:/data/ -c init-smart-intersection-ri
 
-# Signal the init container to start
+# Create .done flag
 kubectl -n smart-intersection exec $PGSERVER_POD -c init-smart-intersection-ri -- touch /data/.done
+```
 
-sleep 5 # Wait for the init container to finish
+## Access Application Services
 
-# Access Application Services
-# ===========================
-#
-# Use kubectl port-forward to access the application services on <protocol>://localhost:<service-port>
-# For more available options, see https://kubernetes.io/docs/reference/kubectl/generated/kubectl_port-forward/#options
+Use `kubectl port-forward` to access the application services on <protocol>://localhost:<service-port>
+For more available options, see [kubectl port-forward options](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_port-forward/#options)
 
-# Access the Application UI
-# =========================
+
+### Access the Application UI
+
+```bash
 WEB_POD=$(kubectl get pods -n smart-intersection -l app=smart-intersection-web -o jsonpath="{.items[0].metadata.name}")
 sudo -E kubectl -n smart-intersection port-forward $WEB_POD 443:443
+```
 
-# Access the Grafana UI
-# =====================
+### Access the Grafana UI
+
+```bash
 GRAFANA_POD=$(kubectl get pods -n smart-intersection -l app=smart-intersection-grafana -o jsonpath="{.items[0].metadata.name}")
 kubectl -n smart-intersection port-forward $GRAFANA_POD 3000:3000
+```
 
-# Access the InfluxDB UI
-# ======================
+### Access the InfluxDB UI
+
+```bash
 INFLUX_POD=$(kubectl get pods -n smart-intersection -l app=smart-intersection-influxdb -o jsonpath="{.items[0].metadata.name}")
 kubectl -n smart-intersection port-forward $INFLUX_POD 8086:8086
+```
 
-# Access the NodeRED UI
-# =====================
+### Access the NodeRED UI
+
+```bash
 NODE_RED_POD=$(kubectl get pods -n smart-intersection -l app=smart-intersection-nodered -o jsonpath="{.items[0].metadata.name}")
 kubectl -n smart-intersection port-forward $NODE_RED_POD 1880:1880
+```
 
-# Access the DL Streamer Pipeline Server
-# =======================
+### Access the DL Streamer Pipeline Server
+
+```bash
 DLS_PS_POD=$(kubectl get pods -n smart-intersection -l app=smart-intersection-dlstreamer-pipeline-server -o jsonpath="{.items[0].metadata.name}")
 kubectl -n smart-intersection port-forward $DLS_PS_POD 8080:8080
 kubectl -n smart-intersection port-forward $DLS_PS_POD 8555:8555
-  ```
+```
 
-### How to Delete the Namespace
+## How to Uninstall the Application
+
+To uninstall the application, run the following command:
+
+```bash
+helm uninstall smart-intersection -n smart-intersection
+```
+
+## How to Delete the Namespace
+
 To delete the namespace and all resources within it, run the following command:
 
 ```bash
