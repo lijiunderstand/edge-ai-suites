@@ -6,6 +6,13 @@ OpenCV wheels ship no H.264 encoder, so frames are piped to ffmpeg instead.
 
 Exposes the subset of the `cv2.VideoWriter` API the recorder uses, so it drops
 straight into the existing frame loop.
+
+Shared by BOTH engines: the cv2 engine feeds `bgr24` (default); the gst
+engine's RecorderBin feeds `nv12` straight from the decoder's videoconvert
+output — same ffmpeg command line otherwise, so motion segments are encoded
+with identical parameters (libx264 ultrafast/baseline/CRF26/+faststart). The
+cheaper chroma path for nv12 input is the gst engine's real architectural
+dividend and is reported as such, not equalized away.
 """
 
 from __future__ import annotations
@@ -14,15 +21,21 @@ import logging
 import shutil
 import subprocess
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 
 class H264SegmentWriter:
-    """Writes BGR frames to a browser-playable baseline H.264 mp4."""
+    """Writes raw frames to a browser-playable baseline H.264 mp4."""
 
-    def __init__(self, path: str, fps: float, width: int, height: int, crf: int = 26):
+    def __init__(
+        self,
+        path: str,
+        fps: float,
+        width: int,
+        height: int,
+        crf: int = 26,
+        pix_fmt: str = "bgr24",
+    ):
         self._path = path
         self._proc: subprocess.Popen | None = None
 
@@ -33,7 +46,7 @@ class H264SegmentWriter:
         args = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-f", "rawvideo",
-            "-pix_fmt", "bgr24",
+            "-pix_fmt", pix_fmt,
             "-s", f"{width}x{height}",
             "-r", f"{max(fps, 1.0):.6f}",
             "-i", "pipe:0",
@@ -63,14 +76,19 @@ class H264SegmentWriter:
     def isOpened(self) -> bool:  # noqa: N802 - mirrors cv2.VideoWriter
         return self._proc is not None and self._proc.stdin is not None
 
-    def write(self, frame: np.ndarray) -> None:
+    def write(self, frame) -> None:
+        """Write one frame: np.ndarray (cv2 path) or any bytes-like carrying
+        exactly width*height*bpp raw pixels in the configured pix_fmt
+        (gst path passes a memoryview over the mapped Gst buffer)."""
         proc = self._proc
         if proc is None or proc.stdin is None:
             return
         try:
-            proc.stdin.write(frame.tobytes())
-        except (BrokenPipeError, ValueError):
-            logger.warning("ffmpeg pipe closed early for %s", self._path)
+            # BufferedWriter accepts anything implementing the buffer
+            # protocol — no extra copy for either caller.
+            proc.stdin.write(frame)
+        except (BrokenPipeError, ValueError, TypeError, BufferError) as exc:
+            logger.warning("ffmpeg pipe write failed for %s: %s", self._path, exc)
             self._proc = None
 
     def release(self) -> None:
