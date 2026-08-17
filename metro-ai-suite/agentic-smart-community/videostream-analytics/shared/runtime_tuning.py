@@ -21,6 +21,11 @@ values:
                        reads the same var for avdec_h264 max-threads
                        (gst_engine/builder.py).
 
+Also pinned for parity: cv2's FFmpeg capture defaults to UDP-first RTSP while
+the gst engine's rtspsrc is TCP-only — OPENCV_FFMPEG_CAPTURE_OPTIONS forces
+TCP (OpenCV's `;`-separated format) so both engines see the same network
+behavior (parity plan §Task 3.1).
+
 Call `apply()` before the first VideoCapture / Gst element is created:
 OPENCV_FFMPEG_THREADS is read and cached by OpenCV at capture-open time.
 """
@@ -43,16 +48,21 @@ def apply() -> dict[str, int | str | None]:
     cv2.setNumThreads(cv2_threads)
     # setdefault: an explicit operator setting always wins over the default.
     os.environ.setdefault("OPENCV_FFMPEG_THREADS", str(decode_threads))
+    # RTSP over TCP for cv2 captures — rtspsrc (gst side) is already TCP-only.
+    os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
     effective = {
         "cv2_threads": cv2.getNumThreads(),
         "opencv_ffmpeg_threads": os.environ.get("OPENCV_FFMPEG_THREADS"),
+        "opencv_ffmpeg_capture_options": os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS"),
         "vsa_decode_threads": decode_threads,
     }
     logger.info(
-        "Runtime tuning: cv2 threads=%d, OPENCV_FFMPEG_THREADS=%s, VSA_DECODE_THREADS=%d",
+        "Runtime tuning: cv2 threads=%d, OPENCV_FFMPEG_THREADS=%s, "
+        "OPENCV_FFMPEG_CAPTURE_OPTIONS=%s, VSA_DECODE_THREADS=%d",
         effective["cv2_threads"],  # type: ignore[arg-type]
         effective["opencv_ffmpeg_threads"],
+        effective["opencv_ffmpeg_capture_options"],
         decode_threads,
     )
     return effective
