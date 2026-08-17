@@ -30,7 +30,12 @@ def cmd_serve(args):
     """Start HTTP API server."""
     import uvicorn
     from shared.config import load_config
+    from shared.runtime_tuning import apply as apply_runtime_tuning
     from service import create_app
+
+    # Pin library thread counts before any source (VideoCapture) can be
+    # created via the API.
+    apply_runtime_tuning()
 
     config = load_config(args.config)
     log_level = config.logging.get("level", "INFO").upper()
@@ -47,8 +52,12 @@ def cmd_stream(args):
     """Single-source streaming mode — output events to stdout."""
     import os
     from shared.config import load_config, SourceConfig, expand_path
+    from shared.runtime_tuning import apply as apply_runtime_tuning
     from stream_monitor.rtsp_monitor import StreamPipeline
     from sinks import StdoutSink, NullSink, WebhookSink
+
+    # Pin library thread counts before the pipeline opens any capture.
+    apply_runtime_tuning()
 
     config = load_config(args.config)
     log_level = config.logging.get("level", "INFO").upper()

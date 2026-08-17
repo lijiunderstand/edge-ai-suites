@@ -193,6 +193,9 @@ RUN apt-get install -y --no-install-recommends \
 # Prebuilt venv from the builder stage.
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+# Pin library thread counts: single-threaded by default so N streams don't
+# oversubscribe N×16 OpenCV thread pools. Override per deployment.
+ENV VSA_CV2_THREADS=1 VSA_DECODE_THREADS=1
 COPY --from=builder-base /opt/venv /opt/venv
 
 # Optionally download copyleft sources for ALL installed copyleft packages. The self-built ffmpeg +
